@@ -339,7 +339,7 @@ fn status_bar_shows_no_repository_and_version() {
         "line {status_line:?}"
     );
     assert!(
-        status_line.contains("gitdeck 0.1.0"),
+        status_line.contains(concat!("gitdeck ", env!("CARGO_PKG_VERSION"))),
         "line {status_line:?}"
     );
 }
