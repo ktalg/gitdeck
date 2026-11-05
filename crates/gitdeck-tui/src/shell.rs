@@ -1456,7 +1456,7 @@ mod shell_tests {
         let status_line = line_text(&buffer, 47);
         assert!(status_line.contains("master"), "line {status_line:?}");
         assert!(
-            status_line.contains("gitdeck 0.1.0"),
+            status_line.contains(concat!("gitdeck ", env!("CARGO_PKG_VERSION"))),
             "line {status_line:?}"
         );
     }
