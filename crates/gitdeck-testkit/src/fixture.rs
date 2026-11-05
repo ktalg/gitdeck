@@ -39,6 +39,7 @@ const FIXTURE_MARKER_CONTENT: &str = "gitdeck-fixture-spec-4";
 const FIXTURE_CONFIG_FILE_NAME: &str = "gitconfig";
 pub const FIXTURE_USER_NAME: &str = "gitdeck-fixture";
 pub const FIXTURE_USER_EMAIL: &str = "fixture@gitdeck.invalid";
+const QUOTEPATH_OVERRIDE_ARGUMENTS: [&str; 2] = ["-c", "core.quotePath=false"];
 const GIT_IDENTITY_VARIABLES: [(&str, &str); 4] = [
     ("GIT_AUTHOR_NAME", FIXTURE_USER_NAME),
     ("GIT_AUTHOR_EMAIL", FIXTURE_USER_EMAIL),
@@ -185,6 +186,7 @@ pub fn fixture_git_command(repository_path: &Path) -> Command {
     command
         .arg("-C")
         .arg(repository_path)
+        .args(QUOTEPATH_OVERRIDE_ARGUMENTS)
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_CONFIG_GLOBAL", NULL_DEVICE_PATH)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -701,9 +703,10 @@ mod fixture_tests {
     use std::fs;
 
     use super::{
-        fixture_repo, fixtures_root, git_checked, FixtureRepo, FIXTURE_USER_EMAIL,
-        FIXTURE_USER_NAME,
+        fixture_git_command, fixture_repo, fixtures_root, git_checked, FixtureRepo,
+        FIXTURE_CONFIG_FILE_NAME, FIXTURE_USER_EMAIL, FIXTURE_USER_NAME,
     };
+    use crate::scratch::scratch_directory;
 
     #[test]
     fn fixtures_are_generated_inside_the_repository_artifacts() {
@@ -788,6 +791,35 @@ mod fixture_tests {
         let feature_head = git_checked(&fixture_path, 0, &["rev-parse", "feature"]);
         assert_ne!(merge_base.trim(), main_head.trim());
         assert_ne!(merge_base.trim(), feature_head.trim());
+    }
+
+    #[test]
+    fn fixture_git_command_lists_wide_paths_verbatim_under_a_quotepath_on_config() {
+        let fixture_path = fixture_repo(FixtureRepo::CjkPaths);
+        let hostile_config_directory =
+            scratch_directory("artifacts/tmp/testkit", "quotepath-on-git-config");
+        let hostile_config_path = hostile_config_directory.join(FIXTURE_CONFIG_FILE_NAME);
+        fs::write(&hostile_config_path, "[core]\n\tquotePath = true\n")
+            .expect("the quotePath-on config is written");
+        let output = fixture_git_command(&fixture_path)
+            .env("GIT_CONFIG_GLOBAL", &hostile_config_path)
+            .arg("ls-files")
+            .output()
+            .expect("git ls-files runs");
+        assert!(
+            output.status.success(),
+            "git ls-files failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let listed_paths = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            listed_paths.contains("文档/说明.md"),
+            "wide paths are unreadable: {listed_paths}"
+        );
+        assert!(
+            !listed_paths.contains("\\346"),
+            "wide paths are octal escaped: {listed_paths}"
+        );
     }
 
     #[test]
