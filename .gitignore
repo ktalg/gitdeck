@@ -1,0 +1,10 @@
+/target/
+/.cargo-home/
+/.rustup-home/
+/.cache/
+/.tmp/
+/artifacts/
+/.reference/
+/.home/
+/.worktrees/
+/.tools/

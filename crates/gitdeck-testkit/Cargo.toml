@@ -1,0 +1,19 @@
+[package]
+name = "gitdeck-testkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+font8x8.workspace = true
+insta.workspace = true
+gitdeck-caps.workspace = true
+gitdeck-core.workspace = true
+gitdeck-tui.workspace = true
+png.workspace = true
+portable-pty.workspace = true
+ratatui.workspace = true
+sha2.workspace = true
+unicode-width.workspace = true
+vt100.workspace = true

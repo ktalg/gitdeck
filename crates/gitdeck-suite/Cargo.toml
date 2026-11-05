@@ -1,0 +1,20 @@
+[package]
+name = "gitdeck-suite"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+gitdeck-testkit.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+gitdeck-app.workspace = true
+gitdeck-core.workspace = true
+gitdeck-git.workspace = true
+gitdeck-tui.workspace = true
+png.workspace = true
+ratatui.workspace = true
+unicode-width.workspace = true

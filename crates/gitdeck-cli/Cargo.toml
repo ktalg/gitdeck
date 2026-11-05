@@ -1,0 +1,22 @@
+[package]
+name = "gitdeck-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "gitdeck"
+path = "src/main.rs"
+
+[dependencies]
+gitdeck-app.workspace = true
+gitdeck-caps.workspace = true
+gitdeck-core.workspace = true
+gitdeck-tui.workspace = true
+ratatui.workspace = true
+
+[dev-dependencies]
+gitdeck-testkit.workspace = true
+portable-pty.workspace = true
+vt100.workspace = true

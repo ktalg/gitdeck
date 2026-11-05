@@ -1,0 +1,12 @@
+[package]
+name = "gitdeck-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gitdeck-caps.workspace = true
+gitdeck-core.workspace = true
+ratatui.workspace = true
+unicode-width.workspace = true

@@ -1,0 +1,13 @@
+[package]
+name = "gitdeck-git"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+gitdeck-core.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+gitdeck-testkit.workspace = true
