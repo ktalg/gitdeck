@@ -1057,7 +1057,7 @@ fn assert_resized_shell(session: &mut TerminalSession, repository: &Path, column
     );
     let status_line = lines.last().cloned().unwrap_or_default();
     assert!(
-        status_line.contains("gitdeck 0.1.0"),
+        status_line.contains(concat!("gitdeck ", env!("CARGO_PKG_VERSION"))),
         "{columns}x{rows} keeps the status bar on the last row, got {status_line:?}"
     );
     assert!(

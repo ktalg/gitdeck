@@ -1,0 +1,147 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: check tag matches crate version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - id: tag-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tagged="${GITHUB_REF_NAME#v}"
+          crate="$(cargo metadata --no-deps --locked --format-version 1 | jq -r '.packages[] | select(.name == "gitdeck-cli") | .version')"
+          if [ "$tagged" != "$crate" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match gitdeck-cli version ${crate}" >&2
+            echo "bump the workspace version in Cargo.toml or retag with v${crate}" >&2
+            exit 1
+          fi
+          echo "version=${crate}" >> "$GITHUB_OUTPUT"
+
+  package:
+    name: package (${{ matrix.target }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            suffix: linux-x86_64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            suffix: macos-x86_64
+          - os: macos-14
+            target: aarch64-apple-darwin
+            suffix: macos-arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: windows-x86_64.exe
+    env:
+      TARGET: ${{ matrix.target }}
+      BINARY_NAME: gitdeck-${{ needs.version.outputs.version }}-${{ matrix.suffix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }} -p gitdeck-cli
+      - name: stage the bare binary
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+          cp "target/$TARGET/release/gitdeck" "dist/$BINARY_NAME"
+          chmod +x "dist/$BINARY_NAME"
+      - name: stage the bare binary for windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/$env:TARGET/release/gitdeck.exe" "dist/$env:BINARY_NAME"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gitdeck-${{ matrix.target }}
+          path: dist/${{ env.BINARY_NAME }}
+          if-no-files-found: error
+
+  publish:
+    name: publish release assets
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: gitdeck-*
+          merge-multiple: true
+      - name: write the aggregated checksum file
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          assets=(
+            "gitdeck-${VERSION}-linux-x86_64"
+            "gitdeck-${VERSION}-macos-arm64"
+            "gitdeck-${VERSION}-macos-x86_64"
+            "gitdeck-${VERSION}-windows-x86_64.exe"
+          )
+          : > SHA256SUMS
+          for asset in "${assets[@]}"; do
+            if [ ! -f "$asset" ]; then
+              echo "missing release asset ${asset}" >&2
+              ls -al >&2
+              exit 1
+            fi
+            sha256sum "$asset" >> SHA256SUMS
+          done
+          cat SHA256SUMS
+      - id: notes
+        shell: bash
+        run: |
+          {
+            echo 'body<<RELEASE_BODY'
+            if [ -f CHANGELOG.md ]; then
+              cat CHANGELOG.md
+            else
+              echo 'See README for details.'
+            fi
+            echo 'RELEASE_BODY'
+          } >> "$GITHUB_OUTPUT"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.body }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false

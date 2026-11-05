@@ -361,7 +361,7 @@ dependencies = [
 
 [[package]]
 name = "gitdeck-app"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "gitdeck-caps",
  "gitdeck-core",
@@ -373,11 +373,11 @@ dependencies = [
 
 [[package]]
 name = "gitdeck-caps"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "gitdeck-cli"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "gitdeck-app",
  "gitdeck-caps",
@@ -391,11 +391,11 @@ dependencies = [
 
 [[package]]
 name = "gitdeck-core"
-version = "0.1.0"
+version = "0.0.1"
 
 [[package]]
 name = "gitdeck-git"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "gitdeck-core",
  "gitdeck-testkit",
@@ -404,7 +404,7 @@ dependencies = [
 
 [[package]]
 name = "gitdeck-suite"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "gitdeck-app",
  "gitdeck-core",
@@ -419,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "gitdeck-testkit"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "font8x8",
  "gitdeck-caps",
@@ -436,7 +436,7 @@ dependencies = [
 
 [[package]]
 name = "gitdeck-tui"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "gitdeck-caps",
  "gitdeck-core",
