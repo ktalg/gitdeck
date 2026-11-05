@@ -1,26 +1,19 @@
 # gitdeck
 
-一个终端里的 Git 客户端，布局沿用 JetBrains Git 工具窗。
+**终端里的 Git 客户端，用你熟悉的那几个面板。**
 
-![changes](assets/screenshots/changes.png)
+[![ci](https://github.com/ktalg/gitdeck/actions/workflows/ci.yml/badge.svg)](https://github.com/ktalg/gitdeck/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#许可证)
 
-三栏：左边变更，中间历史，右边提交详情。键盘为主，鼠标为辅。读写都走 `git` 命令，
-仓库行为与你在命令行里看到的完全一致。
+![gitdeck](assets/demo.gif)
+
+`git status` 会告诉你改了什么，但不会告诉你某一行来自哪个提交、哪些 hunk 该放进同一次提交，
+也不会解释一次 merge 为什么停在半路。
+
+gitdeck 把变更、历史、提交详情并排放进终端，全程用键盘操作。读写都走 `git` 命令，仓库行为
+和你在命令行里看到的一致，不会多出任何东西。
 
 [English](README.md) · **简体中文**
-
-## 功能
-
-- 按文件暂存，或在 diff 里按 hunk 暂存，只提交勾选的内容
-- 提交图，分支、tag、合并线
-- 单文件 diff，词级高亮与软折行
-- 分支列表：切换、新建、删除、合并
-- Push、Fetch，Pull 支持 fast-forward / merge / rebase 三种策略
-- 页脚显示 merge 与 rebase 状态，可中止或继续
-- 冲突处理：采用我方、采用对方、标记已解决
-- 丢弃文件改动，忽略未跟踪文件
-
-![log](assets/screenshots/log.png)
 
 ## 安装
 
@@ -28,7 +21,7 @@
 cargo install --path crates/gitdeck-cli --locked
 ```
 
-或者从源码构建：
+或者自己构建：
 
 ```sh
 cargo build --release
@@ -41,6 +34,18 @@ cargo build --release
 gitdeck --doctor                      # 能力档位、主题、终端尺寸
 gitdeck --mouse-debug /tmp/mouse.log  # 记录原始鼠标事件，排查点击问题
 ```
+
+## 能做什么
+
+- **按 hunk 暂存。** 打开 diff，停在 `@@` 行按 `space`，勾上的才会进提交。
+- **有图可看。** 分支、tag、合并线，一万条提交也能顺畅滚动。
+- **变更自己会说话。** `MM`、` D`、`A `，索引区与工作区状态分两列，冲突时直接标出来。
+- **分支能直接用。** 切换、新建、删除、合并，都在同一个列表里。
+- **远程不用查手册。** Push、Fetch，Pull 支持 fast-forward / merge / rebase。
+- **中断状态看得见。** `MERGING`、`REBASING`，可中止可继续，破坏性操作前先问一次。
+- **diff 值得读。** 词级高亮、软折行、双行号，横向滚动到行尾就停住。
+
+![changes](assets/screenshots/changes.png)
 
 ## 按键
 
@@ -66,14 +71,16 @@ gitdeck --mouse-debug /tmp/mouse.log  # 记录原始鼠标事件，排查点击�
 
 ## 部分提交
 
-打开 diff，移到某个 `@@` 行，按 `space`，这个 hunk 就被勾上。只有勾选的 hunk 会进入提交。
-补丁取自索引字节，写入临时索引，CRLF、Tab 和相邻 hunk 都能原样保留。
-
 ![diff](assets/screenshots/diff.png)
 
-## 未实现
+`git add -p` 像是在对话，而有时候你只想要一张清单。
 
-- 交互式 rebase 与 rebase 词表
+补丁取自索引字节，写入临时索引，CRLF、Tab 和相邻 hunk 都能原样保留；没勾的文件不会混进
+这次提交。
+
+## 当前版本没有
+
+- 交互式 rebase、rebase 词表
 - cherry-pick、revert、reset
 - 三方合并编辑器
 - stash
@@ -92,8 +99,8 @@ gitdeck --mouse-debug /tmp/mouse.log  # 记录原始鼠标事件，排查点击�
 
 ## 性能
 
-日志采用虚拟滚动，提交详情在选中项稳定后才查询，不随每次按键发起进程。6,000 提交的
-仓库首屏不到一秒，滚动不会为每个事件 fork 一个 `git`。
+日志采用虚拟滚动，提交详情在选中项稳定后才查询，不随每次按键发起进程。六千条提交的仓库
+首屏不到一秒。
 
 ## 开发
 
@@ -108,8 +115,8 @@ e2e 通过伪终端驱动真实二进制，键盘和鼠标都覆盖。
 
 ## 致谢
 
-工具窗布局和键盘操作流来自 JetBrains 的 Git 窗口。提交图、diff 渲染和 hunk 暂存是
-针对终端重写的。
+面板布局和键盘操作流借自 JetBrains 的 Git 窗口——肌肉记忆也是一种功能。提交图、diff 渲染
+和 hunk 暂存是对着终端写的，不是对着别人的代码写的。
 
 ## 许可证
 
