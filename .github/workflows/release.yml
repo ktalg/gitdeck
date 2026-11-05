@@ -33,23 +33,25 @@ jobs:
     name: package (${{ matrix.target }})
     needs: version
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
+            suffix: linux-x86_64
           - os: macos-13
             target: x86_64-apple-darwin
+            suffix: macos-x86_64
           - os: macos-14
             target: aarch64-apple-darwin
+            suffix: macos-arm64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            suffix: windows-x86_64.exe
     env:
       TARGET: ${{ matrix.target }}
-      STAGE: gitdeck-${{ needs.version.outputs.version }}-${{ matrix.target }}
+      BINARY_NAME: gitdeck-${{ needs.version.outputs.version }}-${{ matrix.suffix }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -63,37 +65,65 @@ jobs:
         with:
           key: ${{ matrix.target }}
       - run: cargo build --release --locked --target ${{ matrix.target }} -p gitdeck-cli
-      - if: runner.os != 'Windows'
+      - name: stage the bare binary
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf stage dist
-          mkdir -p "stage/$STAGE" dist
-          cp "target/$TARGET/release/gitdeck" "stage/$STAGE/gitdeck"
-          cp LICENSE-MIT LICENSE-APACHE README.md "stage/$STAGE/"
-          tar -C stage -czf "dist/$STAGE.tar.gz" "$STAGE"
-          cd dist
-          if command -v sha256sum >/dev/null 2>&1; then
-            sha256sum "$STAGE.tar.gz" > "SHA256SUMS-$TARGET"
-          else
-            shasum -a 256 "$STAGE.tar.gz" > "SHA256SUMS-$TARGET"
-          fi
-      - if: runner.os == 'Windows'
+          rm -rf dist
+          mkdir -p dist
+          cp "target/$TARGET/release/gitdeck" "dist/$BINARY_NAME"
+          chmod +x "dist/$BINARY_NAME"
+      - name: stage the bare binary for windows
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          Remove-Item -Recurse -Force stage, dist -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path "stage/$env:STAGE", dist | Out-Null
-          Copy-Item "target/$env:TARGET/release/gitdeck.exe" "stage/$env:STAGE/gitdeck.exe"
-          Copy-Item LICENSE-MIT, LICENSE-APACHE, README.md "stage/$env:STAGE/"
-          Compress-Archive -Path "stage/$env:STAGE" -DestinationPath "dist/$env:STAGE.zip"
-          $hash = (Get-FileHash -Algorithm SHA256 -Path "dist/$env:STAGE.zip").Hash.ToLower()
-          "$hash  $env:STAGE.zip" | Set-Content -Path "dist/SHA256SUMS-$env:TARGET" -Encoding utf8
+          Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/$env:TARGET/release/gitdeck.exe" "dist/$env:BINARY_NAME"
       - uses: actions/upload-artifact@v4
         with:
           name: gitdeck-${{ matrix.target }}
-          path: dist/*
+          path: dist/${{ env.BINARY_NAME }}
           if-no-files-found: error
+
+  publish:
+    name: publish release assets
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: gitdeck-*
+          merge-multiple: true
+      - name: write the aggregated checksum file
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          assets=(
+            "gitdeck-${VERSION}-linux-x86_64"
+            "gitdeck-${VERSION}-macos-arm64"
+            "gitdeck-${VERSION}-macos-x86_64"
+            "gitdeck-${VERSION}-windows-x86_64.exe"
+          )
+          : > SHA256SUMS
+          for asset in "${assets[@]}"; do
+            if [ ! -f "$asset" ]; then
+              echo "missing release asset ${asset}" >&2
+              ls -al >&2
+              exit 1
+            fi
+            sha256sum "$asset" >> SHA256SUMS
+          done
+          cat SHA256SUMS
       - id: notes
         shell: bash
         run: |
@@ -113,3 +143,5 @@ jobs:
           body: ${{ steps.notes.outputs.body }}
           files: dist/*
           fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
