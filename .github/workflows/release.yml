@@ -1,0 +1,115 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: check tag matches crate version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.tag-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - id: tag-version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tagged="${GITHUB_REF_NAME#v}"
+          crate="$(cargo metadata --no-deps --locked --format-version 1 | jq -r '.packages[] | select(.name == "gitdeck-cli") | .version')"
+          if [ "$tagged" != "$crate" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match gitdeck-cli version ${crate}" >&2
+            echo "bump the workspace version in Cargo.toml or retag with v${crate}" >&2
+            exit 1
+          fi
+          echo "version=${crate}" >> "$GITHUB_OUTPUT"
+
+  package:
+    name: package (${{ matrix.target }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    env:
+      TARGET: ${{ matrix.target }}
+      STAGE: gitdeck-${{ needs.version.outputs.version }}-${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - run: cargo build --release --locked --target ${{ matrix.target }} -p gitdeck-cli
+      - if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf stage dist
+          mkdir -p "stage/$STAGE" dist
+          cp "target/$TARGET/release/gitdeck" "stage/$STAGE/gitdeck"
+          cp LICENSE-MIT LICENSE-APACHE README.md "stage/$STAGE/"
+          tar -C stage -czf "dist/$STAGE.tar.gz" "$STAGE"
+          cd dist
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$STAGE.tar.gz" > "SHA256SUMS-$TARGET"
+          else
+            shasum -a 256 "$STAGE.tar.gz" > "SHA256SUMS-$TARGET"
+          fi
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -Recurse -Force stage, dist -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path "stage/$env:STAGE", dist | Out-Null
+          Copy-Item "target/$env:TARGET/release/gitdeck.exe" "stage/$env:STAGE/gitdeck.exe"
+          Copy-Item LICENSE-MIT, LICENSE-APACHE, README.md "stage/$env:STAGE/"
+          Compress-Archive -Path "stage/$env:STAGE" -DestinationPath "dist/$env:STAGE.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 -Path "dist/$env:STAGE.zip").Hash.ToLower()
+          "$hash  $env:STAGE.zip" | Set-Content -Path "dist/SHA256SUMS-$env:TARGET" -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gitdeck-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+      - id: notes
+        shell: bash
+        run: |
+          {
+            echo 'body<<RELEASE_BODY'
+            if [ -f CHANGELOG.md ]; then
+              cat CHANGELOG.md
+            else
+              echo 'See README for details.'
+            fi
+            echo 'RELEASE_BODY'
+          } >> "$GITHUB_OUTPUT"
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.body }}
+          files: dist/*
+          fail_on_unmatched_files: true
