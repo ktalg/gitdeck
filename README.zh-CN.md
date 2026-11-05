@@ -17,6 +17,22 @@ gitdeck 把变更、历史、提交详情并排放进终端，全程用键盘操
 
 ## 安装
 
+预编译二进制在 [Releases](https://github.com/ktalg/gitdeck/releases/latest) 页面：
+
+| 平台 | 文件 |
+|---|---|
+| macOS Apple Silicon | `gitdeck-0.0.1-macos-arm64` |
+| macOS Intel | `gitdeck-0.0.1-macos-x86_64` |
+| Linux x86-64（静态） | `gitdeck-0.0.1-linux-x86_64` |
+| Windows x86-64 | `gitdeck-0.0.1-windows-x86_64.exe` |
+
+```sh
+chmod +x gitdeck-0.0.1-macos-arm64
+./gitdeck-0.0.1-macos-arm64 ~/some/repo
+```
+
+从源码安装：
+
 ```sh
 cargo install --path crates/gitdeck-cli --locked
 ```

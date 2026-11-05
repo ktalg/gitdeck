@@ -18,6 +18,22 @@ shell, and nothing new ends up in it.
 
 ## Install
 
+Prebuilt binaries are on the [releases page](https://github.com/ktalg/gitdeck/releases/latest):
+
+| Platform | Asset |
+|---|---|
+| macOS, Apple Silicon | `gitdeck-0.0.1-macos-arm64` |
+| macOS, Intel | `gitdeck-0.0.1-macos-x86_64` |
+| Linux, x86-64 (static) | `gitdeck-0.0.1-linux-x86_64` |
+| Windows, x86-64 | `gitdeck-0.0.1-windows-x86_64.exe` |
+
+```sh
+chmod +x gitdeck-0.0.1-macos-arm64
+./gitdeck-0.0.1-macos-arm64 ~/some/repo
+```
+
+From source:
+
 ```sh
 cargo install --path crates/gitdeck-cli --locked
 ```
