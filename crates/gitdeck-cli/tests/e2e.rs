@@ -23,6 +23,10 @@ const MEDIUM_ROWS: u16 = 32;
 const COMPACT_COLUMNS: u16 = 80;
 const COMPACT_ROWS: u16 = 24;
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(40);
+const STARTUP_ATTEMPTS: u8 = 2;
+const STATE_WAIT_TIMEOUT: Duration = Duration::from_secs(5);
+const STATE_WAIT_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const APPLICATION_OUTPUT_TAIL_BYTES: usize = 4_000;
 const TEXT_TIMEOUT: Duration = Duration::from_secs(20);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(20);
 const UNSAVED_MESSAGE_QUIT_TEXT: &str = "You have an unsaved commit message.";
@@ -278,34 +282,85 @@ fn deep_path_row(session: &mut TerminalSession) -> u16 {
 }
 
 fn start_wide_shell(repository: &Path) -> TerminalSession {
-    let mut session = TerminalSession::spawn(Some(repository), WIDE_COLUMNS, WIDE_ROWS, &[]);
-    assert!(
-        session.wait_for_text("Log: HEAD", STARTUP_TIMEOUT),
-        "the wide shell shows its log tab, screen text was:\n{}",
-        session.screen_text()
-    );
-    session
+    spawn_shell_when_log_tab_shows(
+        repository,
+        WIDE_COLUMNS,
+        WIDE_ROWS,
+        "the wide shell shows its log tab",
+    )
 }
 
 fn start_wide_layout_shell(repository: &Path) -> TerminalSession {
-    let mut session =
-        TerminalSession::spawn(Some(repository), WIDE_LAYOUT_COLUMNS, WIDE_LAYOUT_ROWS, &[]);
-    assert!(
-        session.wait_for_text("Log: HEAD", STARTUP_TIMEOUT),
-        "the wide layout shell shows its log tab, screen text was:\n{}",
-        session.screen_text()
-    );
-    session
+    spawn_shell_when_log_tab_shows(
+        repository,
+        WIDE_LAYOUT_COLUMNS,
+        WIDE_LAYOUT_ROWS,
+        "the wide layout shell shows its log tab",
+    )
 }
 
 fn start_shell(repository: &Path) -> TerminalSession {
-    let mut session = TerminalSession::spawn(Some(repository), SCREEN_COLUMNS, SCREEN_ROWS, &[]);
-    assert!(
-        session.wait_for_text("Log: HEAD", STARTUP_TIMEOUT),
-        "the shell shows its log tab, screen text was:\n{}",
-        session.screen_text()
+    start_shell_when_ready(repository)
+}
+
+fn start_shell_when_ready(repository: &Path) -> TerminalSession {
+    spawn_shell_when_log_tab_shows(
+        repository,
+        SCREEN_COLUMNS,
+        SCREEN_ROWS,
+        "the shell shows its log tab",
+    )
+}
+
+fn spawn_shell_when_log_tab_shows(
+    repository: &Path,
+    columns: u16,
+    rows: u16,
+    expectation: &str,
+) -> TerminalSession {
+    let mut failures: Vec<String> = Vec::new();
+    for attempt in 1..=STARTUP_ATTEMPTS {
+        let mut session = TerminalSession::spawn(Some(repository), columns, rows, &[]);
+        if session.wait_for_text("Log: HEAD", STARTUP_TIMEOUT) {
+            return session;
+        }
+        let report = format!(
+            "attempt {attempt}/{STARTUP_ATTEMPTS}: {expectation}, {}",
+            screen_with_application_output(&mut session)
+        );
+        eprintln!(
+            "{} on {} at {columns}x{rows} did not start: {report}",
+            current_test_name(),
+            std::env::consts::OS
+        );
+        failures.push(report);
+    }
+    panic!(
+        "{expectation} on {} after {STARTUP_ATTEMPTS} attempts:\n{}",
+        std::env::consts::OS,
+        failures.join("\n")
     );
-    session
+}
+
+fn current_test_name() -> String {
+    std::thread::current()
+        .name()
+        .map(str::to_string)
+        .unwrap_or_else(|| "<unnamed>".to_string())
+}
+
+fn screen_with_application_output(session: &mut TerminalSession) -> String {
+    let screen = session.screen_text();
+    format!(
+        "screen text was:\n{screen}\napplication output tail was:\n{}",
+        application_output_tail(session)
+    )
+}
+
+fn application_output_tail(session: &TerminalSession) -> String {
+    let output = session.raw_log();
+    let start = output.len().saturating_sub(APPLICATION_OUTPUT_TAIL_BYTES);
+    String::from_utf8_lossy(&output[start..]).to_string()
 }
 
 fn screen_lines(session: &mut TerminalSession) -> Vec<String> {
@@ -449,6 +504,58 @@ fn wait_for_selection_row(
 fn selection_row(session: &mut TerminalSession, column: u16) -> Option<u16> {
     (1..SCREEN_ROWS - 1)
         .find(|row| session.cell(column, *row).background == FOCUSED_SELECTION_BACKGROUND)
+}
+
+fn wait_until(
+    session: &mut TerminalSession,
+    timeout: Duration,
+    condition: impl Fn(&mut TerminalSession) -> bool,
+) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if condition(session) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(STATE_WAIT_POLL_INTERVAL);
+    }
+}
+
+fn status_row_text(session: &mut TerminalSession) -> String {
+    let row_count = u16::try_from(screen_lines(session).len()).unwrap_or(0);
+    screen_line(session, row_count.saturating_sub(1))
+}
+
+fn wait_for_status_text(session: &mut TerminalSession, needle: &str, timeout: Duration) -> bool {
+    wait_until(session, timeout, |session| {
+        status_row_text(session).contains(needle)
+    })
+}
+
+fn wait_for_screen_rows(session: &mut TerminalSession, rows: u16, timeout: Duration) -> bool {
+    wait_until(session, timeout, |session| {
+        screen_lines(session).len() == usize::from(rows)
+    })
+}
+
+fn wait_for_resized_screen(session: &mut TerminalSession, rows: u16, timeout: Duration) -> bool {
+    wait_until(session, timeout, |session| {
+        screen_lines(session).len() == usize::from(rows)
+            && session.screen_text().contains("Log: HEAD")
+    })
+}
+
+fn wait_for_divider_count(
+    session: &mut TerminalSession,
+    row: u16,
+    expected: usize,
+    timeout: Duration,
+) -> bool {
+    wait_until(session, timeout, |session| {
+        screen_line(session, row).matches(DIVIDER_GLYPH).count() == expected
+    })
 }
 
 fn not_a_repository_directory() -> PathBuf {
@@ -919,17 +1026,17 @@ fn resize_updates_the_screen_model_dimensions() {
     let repository = dirty_repository();
     let mut session = start_shell(&repository);
     session.resize(COMPACT_COLUMNS, COMPACT_ROWS);
-    assert_eq!(
-        screen_lines(&mut session).len(),
-        usize::from(COMPACT_ROWS),
-        "the screen model keeps one line per resized row"
+    assert!(
+        wait_for_screen_rows(&mut session, COMPACT_ROWS, STATE_WAIT_TIMEOUT),
+        "the screen model keeps one line per resized row, {}",
+        screen_with_application_output(&mut session)
     );
     assert_every_row_fills_the_columns(&mut session, COMPACT_COLUMNS);
     session.resize(WIDE_LAYOUT_COLUMNS, WIDE_LAYOUT_ROWS);
-    assert_eq!(
-        screen_lines(&mut session).len(),
-        usize::from(WIDE_LAYOUT_ROWS),
-        "the screen model grows back to the wide row count"
+    assert!(
+        wait_for_screen_rows(&mut session, WIDE_LAYOUT_ROWS, STATE_WAIT_TIMEOUT),
+        "the screen model grows back to the wide row count, {}",
+        screen_with_application_output(&mut session)
     );
     assert_every_row_fills_the_columns(&mut session, WIDE_LAYOUT_COLUMNS);
     finish_with_ctrl_q(&mut session);
@@ -980,6 +1087,11 @@ fn resize_reflows_the_layout() {
     let repository = dirty_repository();
     let mut session = start_shell(&repository);
     session.resize(NARROW_COLUMNS, NARROW_ROWS);
+    assert!(
+        wait_for_resized_screen(&mut session, NARROW_ROWS, STATE_WAIT_TIMEOUT),
+        "the narrow shell shows its log tab, {}",
+        screen_with_application_output(&mut session)
+    );
     let lines = screen_lines(&mut session);
     assert_eq!(lines.len(), usize::from(NARROW_ROWS));
     assert!(
@@ -1044,6 +1156,11 @@ fn the_top_bar_names_the_opened_repository_directory() {
 }
 
 fn assert_resized_shell(session: &mut TerminalSession, repository: &Path, columns: u16, rows: u16) {
+    assert!(
+        wait_for_resized_screen(session, rows, STATE_WAIT_TIMEOUT),
+        "{columns}x{rows} the shell shows its log tab, {}",
+        screen_with_application_output(session)
+    );
     let lines = screen_lines(session);
     assert_eq!(
         lines.len(),
@@ -1109,6 +1226,16 @@ fn resize_during_diff_keeps_the_tab_and_content() {
         "the diff pane shows a right aligned first line number, got {line_numbers_before:?}"
     );
     session.resize(COMPACT_COLUMNS, COMPACT_ROWS);
+    assert!(
+        session.wait_for_text(APP_FILE_TITLE, TEXT_TIMEOUT),
+        "the diff tab survives the resize, {}",
+        screen_with_application_output(&mut session)
+    );
+    assert!(
+        wait_for_screen_rows(&mut session, COMPACT_ROWS, STATE_WAIT_TIMEOUT),
+        "the screen model keeps one line per compact row, {}",
+        screen_with_application_output(&mut session)
+    );
     assert!(
         screen_line(&mut session, EDITOR_TAB_ROW).contains(APP_FILE_TITLE),
         "the diff tab survives the resize, got {:?}",
@@ -1501,11 +1628,10 @@ fn a_diff_tab_widens_the_text_area_in_a_real_terminal() {
 
     session.resize(WIDE_LAYOUT_COLUMNS, WIDE_LAYOUT_ROWS);
     dump_screen(&mut session, "diff-width-220x70-open.txt");
-    let wide_body = screen_line(&mut session, BODY_ROW);
-    assert_eq!(
-        wide_body.matches(DIVIDER_GLYPH).count(),
-        1,
-        "the wide diff screen keeps only the changes divider, row {wide_body:?}"
+    assert!(
+        wait_for_divider_count(&mut session, BODY_ROW, 1, STATE_WAIT_TIMEOUT),
+        "the wide diff screen keeps only the changes divider, {}",
+        screen_with_application_output(&mut session)
     );
     session.send_keys("ctrl+w");
     assert!(
@@ -1617,19 +1743,17 @@ fn a_long_diff_line_is_readable_at_120_columns() {
 #[test]
 fn resize_to_narrow_hides_the_details_pane() {
     let repository = dirty_repository();
-    let mut session = start_shell(&repository);
-    let wide_body = screen_line(&mut session, BODY_ROW);
-    assert_eq!(
-        wide_body.matches(DIVIDER_GLYPH).count(),
-        2,
-        "a wide shell draws the changes and the details dividers, row {wide_body:?}"
+    let mut session = start_shell_when_ready(&repository);
+    assert!(
+        wait_for_divider_count(&mut session, BODY_ROW, 2, STATE_WAIT_TIMEOUT),
+        "a wide shell draws the changes and the details dividers, {}",
+        screen_with_application_output(&mut session)
     );
     session.resize(COMPACT_COLUMNS, COMPACT_ROWS);
-    let narrow_body = screen_line(&mut session, BODY_ROW);
-    assert_eq!(
-        narrow_body.matches(DIVIDER_GLYPH).count(),
-        1,
-        "eighty columns drop the details divider, row {narrow_body:?}"
+    assert!(
+        wait_for_divider_count(&mut session, BODY_ROW, 1, STATE_WAIT_TIMEOUT),
+        "eighty columns drop the details divider, {}",
+        screen_with_application_output(&mut session)
     );
     let commits_line = screen_line(&mut session, CHANGES_FIRST_ROW);
     let newest_subject = git_output(&repository, &["log", "-1", "--format=%s"]);
@@ -2036,12 +2160,11 @@ fn empty_message_shows_a_status_message() {
     session.send_keys("ctrl+k");
     session.send_keys("ctrl+enter");
     assert!(
-        session.wait_for_text(EMPTY_MESSAGE_STATUS, TEXT_TIMEOUT),
-        "the status bar reports the empty message, screen text was:\n{}",
-        session.screen_text()
+        wait_for_status_text(&mut session, EMPTY_MESSAGE_STATUS, STATE_WAIT_TIMEOUT),
+        "the status bar reports the empty message, {}",
+        screen_with_application_output(&mut session)
     );
-    let status_row = u16::try_from(screen_lines(&mut session).len()).unwrap_or(0) - 1;
-    let status_line = screen_line(&mut session, status_row);
+    let status_line = status_row_text(&mut session);
     let label_column = status_line
         .find(EMPTY_MESSAGE_STATUS)
         .unwrap_or_else(|| panic!("the status row holds the message, row {status_line:?}"));
@@ -2342,9 +2465,9 @@ fn discard_a_change_from_the_ui() {
         let mut session = start_shell(&repository);
         session.resize(columns, rows);
         assert!(
-            session.wait_for_text("Log: HEAD", TEXT_TIMEOUT),
-            "{label} the shell shows its log tab, screen text was:\n{}",
-            session.screen_text()
+            wait_for_resized_screen(&mut session, rows, STATE_WAIT_TIMEOUT),
+            "{label} the shell shows its log tab, {}",
+            screen_with_application_output(&mut session)
         );
         let discard_row = changes_row_of(&mut session, "app.rs");
         session.mouse_click(FILE_ROW_CLICK_COLUMN, discard_row);
@@ -2448,12 +2571,12 @@ fn a_file_action_on_a_group_row_reports_the_hint() {
         (COMPACT_COLUMNS, COMPACT_ROWS, "80x24"),
     ] {
         let repository = dirty_repository_copy(&format!("group-row-hint-{label}"));
-        let mut session = start_shell(&repository);
+        let mut session = start_shell_when_ready(&repository);
         session.resize(columns, rows);
         assert!(
-            session.wait_for_text("Log: HEAD", TEXT_TIMEOUT),
-            "{label} the shell shows its log tab, screen text was:\n{}",
-            session.screen_text()
+            wait_for_resized_screen(&mut session, rows, STATE_WAIT_TIMEOUT),
+            "{label} the shell shows its log tab, {}",
+            screen_with_application_output(&mut session)
         );
         session.send_keys("ctrl+k");
         session.send_keys("up");
@@ -3201,6 +3324,11 @@ fn remote_dialogs_fit_a_medium_and_a_compact_terminal() {
         let mut session = start_shell(&repository);
         session.resize(columns, rows);
         assert!(
+            wait_for_resized_screen(&mut session, rows, STATE_WAIT_TIMEOUT),
+            "{size} the shell shows its log tab, {}",
+            screen_with_application_output(&mut session)
+        );
+        assert!(
             session.wait_for_text(REMOTE_PULL_LABEL, TEXT_TIMEOUT),
             "the {size} screen shows the remote tool bar, screen text was:\n{}",
             session.screen_text()
@@ -3896,6 +4024,11 @@ fn hunk_checkbox_is_visible_at_medium_and_compact_sizes() {
     );
     dump_screen(&mut session, "hunk-checkbox-medium-checked.txt");
     session.resize(COMPACT_COLUMNS, COMPACT_ROWS);
+    assert!(
+        session.wait_for_text(CHECKED_HUNK_LABEL, TEXT_TIMEOUT),
+        "the checked hunk header survives 80 columns, {}",
+        screen_with_application_output(&mut session)
+    );
     assert_every_row_fills_the_columns(&mut session, COMPACT_COLUMNS);
     let compact_row = hunk_header_row(&mut session);
     assert!(

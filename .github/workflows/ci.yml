@@ -29,7 +29,7 @@ jobs:
       - run: cargo test --workspace --lib
       - run: mkdir -p .tmp && touch .tmp/suite-run-stamp
       - run: cargo test --workspace --test suite -- --nocapture
-      - run: cargo test -p gitdeck-cli --test e2e -- --test-threads=2 --nocapture
+      - run: cargo test -p gitdeck-cli --test e2e -- --test-threads=${{ runner.os == 'macOS' && 1 || 2 }} --nocapture
         env:
           TERM: xterm-256color
       - run: bash scripts/collect-screenshots.sh
